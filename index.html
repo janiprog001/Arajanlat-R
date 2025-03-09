@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tóth Roland árajánlata</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Tóth Roland árajánlata</h1>
+            <button class="product-manage" onclick="toggleProductManagement()">Termékek kezelése</button>
+        </div>
+
+        <div id="productManagement">
+            <h3>Új termék hozzáadása</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="newProductName">Termék neve:</label>
+                    <input type="text" id="newProductName">
+                </div>
+                <div class="form-group">
+                    <label for="newProductPrice">Alapár (nettó):</label>
+                    <input type="number" id="newProductPrice" min="0">
+                </div>
+            </div>
+            <button onclick="addNewProduct()">Termék hozzáadása</button>
+            
+            <h3>Jelenlegi termékek</h3>
+            <table id="productsTable">
+                <thead>
+                    <tr>
+                        <th>Termék neve</th>
+                        <th>Alapár (nettó)</th>
+                        <th>Műveletek</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="clientName">Ügyfél neve:</label>
+                <input type="text" id="clientName">
+            </div>
+            <div class="form-group">
+                <label for="date">Dátum:</label>
+                <input type="date" id="date">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="product">Termék:</label>
+                <select id="product" onchange="updatePriceField()">
+                    <option value="">Válassz terméket...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="price">Egységár:</label>
+                <input type="number" id="price" min="0">
+            </div>
+            <div class="form-group">
+                <label for="quantity">Mennyiség:</label>
+                <input type="number" id="quantity" min="1" value="1">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <button onclick="addItem()">Tétel hozzáadása</button>
+            <button class="delete-button" style="background-color: red; color: white;" onclick="clearAll()">Összes törlése</button>
+        </div>
+
+        <button onclick="generatePDF()">PDF generálása</button>
+
+        <table id="itemsTable">
+            <thead>
+                <tr>
+                    <th>Termék</th>
+                    <th>Mennyiség</th>
+                    <th>Egységár</th>
+                    <th>Nettó</th>
+                    <th>ÁFA (27%)</th>
+                    <th>Bruttó</th>
+                    <th>Művelet</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+
+        <div class="total">
+            <div>Nettó végösszeg: <span id="totalNetAmount">0 Ft</span></div>
+            <div>ÁFA (27%): <span id="totalVatAmount">0 Ft</span></div>
+            <div>Bruttó végösszeg: <span id="totalAmount">0 Ft</span></div>
+        </div>
+    </div>
+
+    <script>
+        window.jsPDF = window.jspdf.jsPDF;
+        
+        // Termékek és árajánlat tárolása localStorage-ban
+        let products = JSON.parse(localStorage.getItem('products')) || [
+            { name: "Általános óradíj (Fő/óra)", price: 0 }
+        ];
+
+        function saveProducts() {
+            localStorage.setItem('products', JSON.stringify(products));
+        }
+
+        function saveQuotationToLocalStorage() {
+            const items = [];
+            const table = document.getElementById('itemsTable');
+            const rows = table.getElementsByTagName('tr');
+            
+            for (let i = 1; i < rows.length; i++) {
+                const cells = rows[i].getElementsByTagName('td');
+                if (cells.length > 0) {
+                    items.push({
+                        product: cells[0].textContent,
+                        quantity: parseInt(cells[1].textContent),
+                        price: parseFloat(cells[2].textContent.replace(/[^0-9.-]+/g, '')),
+                        net: parseFloat(cells[3].textContent.replace(/[^0-9.-]+/g, '')),
+                        vat: parseFloat(cells[4].textContent.replace(/[^0-9.-]+/g, '')),
+                        total: parseFloat(cells[5].textContent.replace(/[^0-9.-]+/g, ''))
+                    });
+                }
+            }
+
+            const quotation = {
+                clientName: document.getElementById('clientName').value,
+                date: document.getElementById('date').value,
+                items: items
+            };
+
+            localStorage.setItem('quotation', JSON.stringify(quotation));
+        }
+
+        function loadQuotationFromLocalStorage() {
+            const savedQuotation = localStorage.getItem('quotation');
+            if (savedQuotation) {
+                const quotation = JSON.parse(savedQuotation);
+                
+                document.getElementById('clientName').value = quotation.clientName || '';
+                document.getElementById('date').value = quotation.date || '';
+                
+                const tbody = document.getElementById('itemsTable').getElementsByTagName('tbody')[0];
+                tbody.innerHTML = '';
+                
+                quotation.items.forEach(item => {
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td>${item.product}</td>
+                        <td>${item.quantity}</td>
+                        <td>${formatPrice(item.price)}</td>
+                        <td>${formatPrice(item.net)}</td>
+                        <td>${formatPrice(item.vat)}</td>
+                        <td>${formatPrice(item.total)}</td>
+                        <td><button class="delete-button" onclick="this.closest('tr').remove(); updateTotal(); saveQuotationToLocalStorage()">Törlés</button></td>
+                    `;
+                });
+                
+                updateTotal();
+            }
+        }
+
+        function updateProductsList() {
+            const select = document.getElementById('product');
+            select.innerHTML = '<option value="">Válassz terméket...</option>';
+            products.forEach(product => {
+                const option = document.createElement('option');
+                option.value = product.name;
+                option.textContent = product.name;
+                select.appendChild(option);
+            });
+        }
+
+        function updateProductsTable() {
+            const tbody = document.getElementById('productsTable').getElementsByTagName('tbody')[0];
+            tbody.innerHTML = '';
+            products.forEach(product => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${product.name}</td>
+                    <td>${formatPrice(product.price)}</td>
+                    <td>
+                        <button class="edit-button" onclick="editProduct('${product.name}')">Szerkesztés</button>
+                        <button class="delete-button" style="background-color: red; color: white;" onclick="deleteProduct('${product.name}')">Törlés</button>
+                    </td>
+                `;
+            });
+        }
+
+        function editProduct(name) {
+            const product = products.find(p => p.name === name);
+            if (product) {
+                const newPrice = prompt(`Add meg az új árat a következő termékhez: ${name}`, product.price);
+                if (newPrice !== null) {
+                    const price = parseFloat(newPrice);
+                    if (!isNaN(price)) {
+                        product.price = price;
+                        saveProducts();
+                        updateProductsTable();
+                        updateProductsList();
+                    }
+                }
+            }
+        }
+
+        function addNewProduct() {
+            const name = document.getElementById('newProductName').value;
+            const price = parseFloat(document.getElementById('newProductPrice').value);
+
+            if (!name || isNaN(price)) {
+                alert('Kérlek töltsd ki az összes mezőt!');
+                return;
+            }
+
+            if (products.some(p => p.name === name)) {
+                alert('Ez a termék már létezik!');
+                return;
+            }
+
+            products.push({ name, price });
+            saveProducts();
+            updateProductsList();
+            updateProductsTable();
+
+            document.getElementById('newProductName').value = '';
+            document.getElementById('newProductPrice').value = '';
+        }
+
+        function deleteProduct(name) {
+            if (confirm(`Biztosan törlöd ezt a terméket: ${name}?`)) {
+                products = products.filter(p => p.name !== name);
+                saveProducts();
+                updateProductsList();
+                updateProductsTable();
+            }
+        }
+
+        function toggleProductManagement() {
+            const div = document.getElementById('productManagement');
+            div.style.display = div.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function updatePriceField() {
+            const productName = document.getElementById('product').value;
+            const product = products.find(p => p.name === productName);
+            if (product) {
+                document.getElementById('price').value = product.price;
+            }
+        }
+
+        function formatPrice(price) {
+            return price.toLocaleString() + ' Ft';
+        }
+
+        function addItem() {
+            const productSelect = document.getElementById('product');
+            const price = parseFloat(document.getElementById('price').value);
+            const quantity = parseInt(document.getElementById('quantity').value);
+
+            if (!productSelect.value || isNaN(price) || isNaN(quantity)) {
+                alert('Kérlek töltsd ki az összes mezőt!');
+                return;
+            }
+
+            // Termék árának mentése
+            const productIndex = products.findIndex(p => p.name === productSelect.value);
+            if (productIndex !== -1) {
+                products[productIndex].price = price;
+                saveProducts();
+                updateProductsTable();
+            }
+
+            const net = price * quantity;
+            const vat = net * 0.27;
+            const total = net + vat;
+
+            const tbody = document.getElementById('itemsTable').getElementsByTagName('tbody')[0];
+            const row = tbody.insertRow();
+            
+            row.innerHTML = `
+                <td>${productSelect.value}</td>
+                <td>${quantity}</td>
+                <td>${formatPrice(price)}</td>
+                <td>${formatPrice(net)}</td>
+                <td>${formatPrice(vat)}</td>
+                <td>${formatPrice(total)}</td>
+                <td><button class="delete-button" style="background-color: red; color: white;" onclick="this.closest('tr').remove(); updateTotal(); saveQuotationToLocalStorage()">Törlés</button></td>
+            `;
+
+            document.getElementById('product').value = '';
+            document.getElementById('price').value = '';
+            document.getElementById('quantity').value = '1';
+
+            updateTotal();
+            saveQuotationToLocalStorage();
+        }
+
+        function updateTotal() {
+            let netTotal = 0;
+            let vatTotal = 0;
+            let grossTotal = 0;
+            
+            const table = document.getElementById('itemsTable');
+            const rows = table.getElementsByTagName('tr');
+            
+            for (let i = 1; i < rows.length; i++) {
+                const cells = rows[i].getElementsByTagName('td');
+                if (cells.length > 0) {
+                    const net = parseFloat(cells[3].textContent.replace(/[^\d.-]+/g, ''));
+                    const vat = parseFloat(cells[4].textContent.replace(/[^\d.-]+/g, ''));
+                    const gross = parseFloat(cells[5].textContent.replace(/[^\d.-]+/g, ''));
+                    
+                    netTotal += net;
+                    vatTotal += vat;
+                    grossTotal += gross;
+                }
+            }
+            
+            document.getElementById('totalNetAmount').textContent = formatPrice(netTotal);
+            document.getElementById('totalVatAmount').textContent = formatPrice(vatTotal);
+            document.getElementById('totalAmount').textContent = formatPrice(grossTotal);
+            
+            saveQuotationToLocalStorage();
+        }
+
+        function clearAll() {
+            if (confirm('Biztosan törölni szeretnéd az összes tételt?')) {
+                document.getElementById('itemsTable').getElementsByTagName('tbody')[0].innerHTML = '';
+                document.getElementById('clientName').value = '';
+                document.getElementById('date').valueAsDate = new Date();
+                updateTotal();
+                
+                // Árajánlat törlése a localStorage-ból
+                localStorage.removeItem('quotation');
+            }
+        }
+
+        function generatePDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.addFont('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf', 'Roboto', 'normal');
+            doc.setFont('Roboto');
+
+            const clientName = document.getElementById('clientName').value;
+            const date = document.getElementById('date').value;
+            
+            doc.setFontSize(20);
+            doc.text('Tóth Roland árajánlata', 105, 20, { align: 'center' });
+            
+            doc.setFontSize(12);
+            doc.text(`Ügyfél: ${clientName}`, 20, 40);
+            doc.text(`Dátum: ${date}`, 20, 50);
+            
+            const data = [];
+            data.push([
+                'Termék',
+                'Mennyiség',
+                'Egységár',
+                'Nettó',
+                'ÁFA (27%)',
+                'Bruttó'
+            ]);
+
+            let totalNet = 0;
+            let totalVat = 0;
+            let totalGross = 0;
+
+            const table = document.getElementById('itemsTable');
+            for (let i = 1; i < table.rows.length; i++) {
+                const row = table.rows[i];
+                const cells = row.getElementsByTagName('td');
+                if (cells.length > 0) {
+                    const quantity = parseInt(cells[1].textContent);
+                    const price = parseFloat(cells[2].textContent.replace(/[^0-9.-]+/g, ''));
+                    const net = parseFloat(cells[3].textContent.replace(/[^0-9.-]+/g, ''));
+                    const vat = parseFloat(cells[4].textContent.replace(/[^0-9.-]+/g, ''));
+                    const total = parseFloat(cells[5].textContent.replace(/[^0-9.-]+/g, ''));
+
+                    totalNet += net;
+                    totalVat += vat;
+                    totalGross += total;
+
+                    data.push([
+                        cells[0].textContent,
+                        quantity.toString(),
+                        formatPrice(price),
+                        formatPrice(net),
+                        formatPrice(vat),
+                        formatPrice(total)
+                    ]);
+                }
+            }
+            
+            doc.autoTable({
+                startY: 60,
+                head: [data[0]],
+                body: data.slice(1),
+                margin: { top: 60 },
+                styles: {
+                    font: 'Roboto',
+                    fontSize: 10
+                },
+                headStyles: {
+                    fillColor: [102, 102, 102]
+                }
+            });
+            
+            const finalY = doc.lastAutoTable.finalY + 10;
+            
+            doc.setFontSize(12);
+            doc.text(`Nettó végösszeg: ${formatPrice(totalNet)}`, 190, finalY, { align: 'right' });
+            doc.text(`ÁFA összesen: ${formatPrice(totalVat)}`, 190, finalY + 7, { align: 'right' });
+            doc.text(`Bruttó végösszeg: ${formatPrice(totalGross)}`, 190, finalY + 14, { align: 'right' });
+            
+            doc.save('arajanlat.pdf');
+        }
+
+        // Oldal betöltésekor
+        document.addEventListener('DOMContentLoaded', function() {
+            loadQuotationFromLocalStorage();
+            updateProductsList();
+            updateProductsTable();
+            
+            // Ha nincs mentett dátum, akkor az aktuális dátumot állítjuk be
+            if (!document.getElementById('date').value) {
+                document.getElementById('date').valueAsDate = new Date();
+            }
+
+            // Input mezők változásának figyelése
+            document.getElementById('clientName').addEventListener('change', saveQuotationToLocalStorage);
+            document.getElementById('date').addEventListener('change', saveQuotationToLocalStorage);
+        });
+    </script>
+</body>
+</html>

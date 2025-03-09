@@ -1,0 +1,36 @@
+# Rendszer fájlok
+.DS_Store
+Thumbs.db
+
+# IDE és szerkesztő fájlok
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Ideiglenes fájlok
+*.tmp
+*.bak
+*.swp
+*~.nib
+
+# Környezeti és lokális beállítások
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Generált fájlok
+dist/
+build/
+node_modules/
+
+# Debuggolási fájlok
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Egyéb
+*.log
+*.pdf
